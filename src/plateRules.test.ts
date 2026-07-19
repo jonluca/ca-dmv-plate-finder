@@ -1,11 +1,13 @@
 import assert from "node:assert/strict";
 
 import {
+  MAX_PLATES_PER_CHECK,
   formatPlateForDisplay,
   MAX_PERSONALIZED_PLATE_LENGTH,
   MIN_PERSONALIZED_PLATE_LENGTH,
   parsePlateCandidates,
   uniquePlateCandidates,
+  splitPlateCandidateBatch,
   validatePlateCandidate,
 } from "./plateRules.js";
 
@@ -36,6 +38,11 @@ assert.deepEqual(parsePlateCandidates("go  car\nxy\n"), ["GO**CAR", "XY"]);
 assert.deepEqual(uniquePlateCandidates(["go car", "GO*CAR", "", " xy "]), ["GO*CAR", "XY"]);
 assert.equal(formatPlateForDisplay("GO*CAR"), "GO CAR");
 assert.equal(formatPlateForDisplay("GO**CAR"), "GO  CAR");
+
+const oversizedBatch = Array.from({ length: MAX_PLATES_PER_CHECK + 1 }, (_, index) => `PLATE-${index}`);
+const [activeBatch, queuedBatch] = splitPlateCandidateBatch(oversizedBatch);
+assert.equal(activeBatch.length, MAX_PLATES_PER_CHECK);
+assert.deepEqual(queuedBatch, ["PLATE-1000"]);
 
 assertValid(" ca1969 ", "CA1969");
 assertValid("go/car", "GO/CAR");

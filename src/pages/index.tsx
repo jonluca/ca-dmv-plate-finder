@@ -7,7 +7,7 @@ import {
   type PlateResultSortField as SortField,
   type PlateResultStatus,
 } from "~/plateResultSorting";
-import { formatPlateForDisplay, parsePlateCandidates, uniquePlateCandidates } from "~/plateRules";
+import { formatPlateForDisplay, parsePlateCandidates, splitPlateCandidateBatch, uniquePlateCandidates } from "~/plateRules";
 import { api } from "~/utils/api";
 
 interface PlateResult {
@@ -272,6 +272,7 @@ export default function Home() {
   const [sortDirection, setSortDirection] = useState<SortDirection>("asc");
   const [resultQuery, setResultQuery] = useState("");
   const activePlatesRef = useRef<string[]>([]);
+  const activeGenerationRequestRef = useRef<number | null>(null);
   const queuedPlatesRef = useRef<string[]>([]);
   const knownPlateSetRef = useRef<Set<string>>(new Set());
 
@@ -297,6 +298,10 @@ export default function Home() {
 
   api.plateGenerator.generateStream.useSubscription(generationRequest ?? skipToken, {
     onData: (trackedData) => {
+      if (activeGenerationRequestRef.current !== generationRequest?.requestId) {
+        return;
+      }
+
       const event = trackedData.data;
 
       if (event.type === "progress") {
@@ -327,9 +332,14 @@ export default function Home() {
         updatedAt: new Date(),
       });
       queuePlateCandidates(event.plates);
+      activeGenerationRequestRef.current = null;
       setGenerationRequest(null);
     },
     onError: (err) => {
+      if (activeGenerationRequestRef.current !== generationRequest?.requestId) {
+        return;
+      }
+
       console.error("Generation error:", err);
       setGenerationError("We couldn't generate ideas right now. Please try again in a moment.");
       setGenerationProgress((currentProgress) =>
@@ -341,6 +351,7 @@ export default function Home() {
             }
           : null,
       );
+      activeGenerationRequestRef.current = null;
       setGenerationRequest(null);
     },
   });
@@ -373,9 +384,9 @@ export default function Home() {
       return;
     }
 
-    const nextBatch = queuedPlatesRef.current;
+    const [nextBatch, remainingQueuedPlates] = splitPlateCandidateBatch(queuedPlatesRef.current);
     if (nextBatch.length > 0) {
-      queuedPlatesRef.current = [];
+      queuedPlatesRef.current = remainingQueuedPlates;
       activePlatesRef.current = nextBatch;
       setPlates(nextBatch);
       return;
@@ -427,8 +438,10 @@ export default function Home() {
     ]);
 
     if (activePlatesRef.current.length === 0) {
-      activePlatesRef.current = platesToCheck;
-      setPlates(platesToCheck);
+      const [activeBatch, remainingPlates] = splitPlateCandidateBatch(platesToCheck);
+      activePlatesRef.current = activeBatch;
+      queuedPlatesRef.current = uniquePlateCandidates([...queuedPlatesRef.current, ...remainingPlates]);
+      setPlates(activeBatch);
       return;
     }
 
@@ -459,13 +472,29 @@ export default function Home() {
       generatedCount: 0,
       updatedAt: new Date(),
     });
+    const requestId = Date.now();
+    activeGenerationRequestRef.current = requestId;
     setGenerationRequest({
       prompt,
-      requestId: Date.now(),
+      requestId,
     });
   };
 
   const handleStop = () => {
+    const stoppedGeneration = activeGenerationRequestRef.current !== null;
+    activeGenerationRequestRef.current = null;
+    setGenerationRequest(null);
+    if (stoppedGeneration) {
+      setGenerationProgress((currentProgress) =>
+        currentProgress
+          ? {
+              ...currentProgress,
+              message: "Idea generation stopped before finishing.",
+              updatedAt: new Date(),
+            }
+          : null,
+      );
+    }
     result.reset();
     activePlatesRef.current = [];
     queuedPlatesRef.current = [];
@@ -478,6 +507,7 @@ export default function Home() {
   };
 
   const handleClear = () => {
+    activeGenerationRequestRef.current = null;
     activePlatesRef.current = [];
     queuedPlatesRef.current = [];
     knownPlateSetRef.current = new Set();
@@ -561,6 +591,7 @@ export default function Home() {
   };
 
   const hasActiveChecks = counts.checking > 0 || isChecking;
+  const hasActiveWork = hasActiveChecks || isGenerating;
   const totalTargets = plateResults.length;
   const completionPercent = totalTargets ? Math.min(100, Math.round((counts.totalChecked / totalTargets) * 100)) : 0;
   const previewPlate = parsedPlates[0] ?? "SUNSET";
@@ -778,7 +809,7 @@ export default function Home() {
                 </details>
 
                 <div className="mt-5 flex flex-col gap-3 sm:flex-row">
-                  {hasActiveChecks ? (
+                  {hasActiveWork ? (
                     <button
                       type="button"
                       onClick={handleStop}

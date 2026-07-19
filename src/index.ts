@@ -17,7 +17,6 @@ const NUM_PARALLEL = Number(process.env.NUM_PARALLEL || 50);
 const COMBO_LENGTH = 3;
 
 async function* getNextPlate(): AsyncGenerator<string> {
-  yield "TEST"; // Initial yield for the instantiation call
   const platesFile = "plates.txt";
 
   // Check if plates.txt exists

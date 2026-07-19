@@ -74,6 +74,10 @@ export function uniquePlateCandidates(candidates: Iterable<string>): string[] {
   return plates;
 }
 
+export function splitPlateCandidateBatch(plates: string[]): [active: string[], queued: string[]] {
+  return [plates.slice(0, MAX_PLATES_PER_CHECK), plates.slice(MAX_PLATES_PER_CHECK)];
+}
+
 export function parsePlateCandidates(text: string): string[] {
   return uniquePlateCandidates(text.split(PLATE_TOKEN_SEPARATOR));
 }
